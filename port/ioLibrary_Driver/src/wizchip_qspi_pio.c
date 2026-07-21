@@ -157,7 +157,8 @@ static void pio_spi_gpio_setup(spi_pio_state_t *state) {
     // Setup reset
     gpio_init(state->spi_config->irq_pin);
     gpio_set_dir(state->spi_config->irq_pin, GPIO_IN);
-    gpio_set_pulls(state->spi_config->irq_pin, false, false);
+    gpio_set_pulls(state->spi_config->irq_pin, true, false);
+    gpio_set_input_hysteresis_enabled(state->spi_config->irq_pin, true);
 #else //W55RP20
     // Setup MOSI, MISO and IRQ
     gpio_init(state->spi_config->data_out_pin);
@@ -172,7 +173,8 @@ static void pio_spi_gpio_setup(spi_pio_state_t *state) {
     // Setup IRQ
     gpio_init(state->spi_config->irq_pin);
     gpio_set_dir(state->spi_config->irq_pin, GPIO_IN);
-    gpio_set_pulls(state->spi_config->irq_pin, false, false);
+    gpio_set_pulls(state->spi_config->irq_pin, true, false);
+    gpio_set_input_hysteresis_enabled(state->spi_config->irq_pin, true);
 #endif
 
 }
@@ -384,7 +386,7 @@ static void cs_set(spi_pio_state_t *state, bool value) {
     gpio_put(state->spi_config->cs_pin, value);
 }
 
-static __noinline void ns_delay(uint32_t ns) {
+static void ns_delay(uint32_t ns) {
     // cycles = ns * clk_sys_hz / 1,000,000,000
     uint32_t cycles = ns * (clock_get_hz(clk_sys) >> 16u) / (1000000000u >> 16u);
     busy_wait_at_least_cycles(cycles);
@@ -435,7 +437,7 @@ void wiznet_spi_pio_read_byte(uint8_t op_code, uint16_t AddrSel, uint8_t *rx, ui
 
     pio_sm_set_enabled(active_state->pio, active_state->pio_sm, false);
     pio_sm_set_wrap(active_state->pio, active_state->pio_sm, active_state->pio_offset, active_state->pio_offset + PIO_OFFSET_READ_BITS_END - 1);
-    //pio_sm_set_wrap(active_state->pio, active_state->pio_sm, active_state->pio_offset + PIO_SPI_OFFSET_WRITE_BITS, active_state->pio_offset + PIO_SPI_OFFSET_READ_BITS_END - 1);
+    //pio_sm_set_wrap(active_state->pio, active_state->pio_sm, active_state->pio_offset, active_state->pio_offset + PIO_OFFSET_READ_BITS_END - 1);
     pio_sm_clear_fifos(active_state->pio, active_state->pio_sm);
 
 #if (_WIZCHIP_QSPI_MODE_ == QSPI_SINGLE_MODE)
@@ -487,7 +489,6 @@ void wiznet_spi_pio_read_byte(uint8_t op_code, uint16_t AddrSel, uint8_t *rx, ui
     channel_config_set_read_increment(&in_config, false);
     dma_channel_configure(active_state->dma_in, &in_config, rx, &active_state->pio->rxf[active_state->pio_sm], rx_length, true);
 
-#if 1
     pio_sm_set_enabled(active_state->pio, active_state->pio_sm, true);
 
     __compiler_memory_barrier();
@@ -500,7 +501,7 @@ void wiznet_spi_pio_read_byte(uint8_t op_code, uint16_t AddrSel, uint8_t *rx, ui
     pio_sm_set_enabled(active_state->pio, active_state->pio_sm, false);
     pio_sm_exec(active_state->pio, active_state->pio_sm, pio_encode_mov(pio_pins, pio_null));
 
-#endif
+
 }
 
 void wiznet_spi_pio_write_byte(uint8_t op_code, uint16_t AddrSel, uint8_t *tx, uint16_t tx_length) {
@@ -563,10 +564,7 @@ void wiznet_spi_pio_write_byte(uint8_t op_code, uint16_t AddrSel, uint8_t *tx, u
             if (++_poll > 0xFFFFu) break;
         }
     }
-#if 1
-
     __compiler_memory_barrier();
-    //pio_sm_set_enabled(active_state->pio, active_state->pio_sm, false);
 #if (_WIZCHIP_QSPI_MODE_ == QSPI_SINGLE_MODE)
     pio_sm_set_consecutive_pindirs(active_state->pio, active_state->pio_sm, active_state->spi_config->data_io0_pin, 1, false);
 #elif (_WIZCHIP_QSPI_MODE_ == QSPI_DUAL_MODE)
@@ -577,8 +575,8 @@ void wiznet_spi_pio_write_byte(uint8_t op_code, uint16_t AddrSel, uint8_t *tx, u
 
     pio_sm_exec(active_state->pio, active_state->pio_sm, pio_encode_mov(pio_pins, pio_null));
     pio_sm_set_enabled(active_state->pio, active_state->pio_sm, false);
-#endif
-}
+  }
+
 #else
 // send tx then receive rx
 // rx can be null if you just want to send, but tx and tx_length must be valid

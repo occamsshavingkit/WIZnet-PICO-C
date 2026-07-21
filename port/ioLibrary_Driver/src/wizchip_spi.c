@@ -46,7 +46,7 @@ static dma_channel_config dma_channel_config_rx;
 
 #ifdef USE_PIO
 #if   (_WIZCHIP_ == W6300)
-wiznet_spi_config_t g_spi_config = {
+static wiznet_spi_config_t g_spi_config = {
     .clock_div_major = WIZNET_SPI_CLKDIV_MAJOR_DEFAULT,
     .clock_div_minor = WIZNET_SPI_CLKDIV_MINOR_DEFAULT,
     .clock_pin = PIO_SPI_SCK_PIN,
@@ -59,7 +59,7 @@ wiznet_spi_config_t g_spi_config = {
     .irq_pin = PIN_INT,
 };
 #else
-wiznet_spi_config_t g_spi_config = {
+static wiznet_spi_config_t g_spi_config = {
     .data_in_pin = PIN_MISO,
     .data_out_pin = PIN_MOSI,
     .cs_pin = PIN_CS,
@@ -71,7 +71,7 @@ wiznet_spi_config_t g_spi_config = {
 };
 #endif
 #endif
-wiznet_spi_handle_t spi_handle;
+static wiznet_spi_handle_t spi_handle;
 
 /**
     ----------------------------------------------------------------------------------------------------
@@ -161,7 +161,7 @@ static void wizchip_read_burst(uint8_t *pBuf, uint16_t len) {
 }
 
 static void wizchip_write_burst(uint8_t *pBuf, uint16_t len) {
-    uint8_t dummy_data;
+    uint8_t dummy_data = 0xFF;
 
     channel_config_set_read_increment(&dma_channel_config_tx, true);
     channel_config_set_write_increment(&dma_channel_config_tx, false);
