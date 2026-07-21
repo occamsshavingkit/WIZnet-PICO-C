@@ -725,7 +725,7 @@ static void wiznet_spi_pio_set_inactive(void) {
     active_state = NULL;
 }
 
-static void wizchip_spi_pio_reset(wiznet_spi_handle_t handle) {
+static void wiznet_spi_pio_reset(wiznet_spi_handle_t handle) {
 
     spi_pio_state_t *state = (spi_pio_state_t *)handle;
     gpio_set_dir(state->spi_config->reset_pin, GPIO_OUT);
@@ -734,6 +734,21 @@ static void wizchip_spi_pio_reset(wiznet_spi_handle_t handle) {
     gpio_put(state->spi_config->reset_pin, 1);
     sleep_ms(100);
 
+}
+
+static void wiznet_spi_pio_sleep(wiznet_spi_handle_t handle) {
+    spi_pio_state_t *state = (spi_pio_state_t *)handle;
+    if (!state || state->pio_sm < 0) return;
+    if (state->dma_out >= 0) dma_channel_abort(state->dma_out);
+    if (state->dma_in >= 0) dma_channel_abort(state->dma_in);
+    pio_sm_set_enabled(state->pio, state->pio_sm, false);
+}
+
+static void wiznet_spi_pio_wake(wiznet_spi_handle_t handle) {
+    spi_pio_state_t *state = (spi_pio_state_t *)handle;
+    if (!state || state->pio_sm < 0) return;
+    pio_sm_restart(state->pio, state->pio_sm);
+    pio_sm_set_enabled(state->pio, state->pio_sm, true);
 }
 
 static wiznet_spi_funcs_t *get_wiznet_spi_pio_impl(void) {
@@ -750,6 +765,8 @@ static wiznet_spi_funcs_t *get_wiznet_spi_pio_impl(void) {
         .write_buffer = wiznet_spi_pio_write_buffer,
 #endif
         .reset = wizchip_spi_pio_reset,
+        .sleep = wiznet_spi_pio_sleep,
+        .wake  = wiznet_spi_pio_wake,
     };
     return &funcs;
 }

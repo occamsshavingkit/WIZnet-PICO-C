@@ -35,6 +35,8 @@ typedef struct wiznet_spi_funcs {
     void (*read_buffer)(uint8_t *pBuf, uint16_t len);
     void (*write_buffer)(uint8_t *pBuf, uint16_t len);
     void (*reset)(wiznet_spi_handle_t funcs);
+    void (*sleep)(wiznet_spi_handle_t funcs);
+    void (*wake)(wiznet_spi_handle_t funcs);
 } wiznet_spi_funcs_t;
 #else
 typedef struct wiznet_spi_config {
@@ -60,6 +62,8 @@ typedef struct wiznet_spi_funcs {
     void (*read_buffer)(uint8_t *pBuf, uint16_t len);
     void (*write_buffer)(uint8_t *pBuf, uint16_t len);
     void (*reset)(wiznet_spi_handle_t funcs);
+    void (*sleep)(wiznet_spi_handle_t funcs);
+    void (*wake)(wiznet_spi_handle_t funcs);
 } wiznet_spi_funcs_t;
 #endif
 
