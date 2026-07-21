@@ -186,10 +186,10 @@ wiznet_spi_handle_t wiznet_spi_pio_open(const wiznet_spi_config_t *spi_config) {
             break;
         }
     }
-    assert(state);
     if (!state) {
         return NULL;
     }
+    assert(state);
     state->spi_config = spi_config;
     state->funcs = get_wiznet_spi_pio_impl();
 
@@ -599,7 +599,7 @@ static bool pio_spi_transfer(spi_pio_state_t *state, const uint8_t *tx, size_t t
         pio_sm_clkdiv_restart(state->pio, state->pio_sm);
         pio_sm_put(state->pio, state->pio_sm, tx_length * 8 - 1); // set x
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_out(pio_x, 32));
-        pio_sm_put(state->pio, state->pio_sm, rx_length - 1); // set y
+        pio_sm_put(state->pio, state->pio_sm, rx_length ? (rx_length - 1) : 0); // set y, guard against underflow
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_out(pio_y, 32));
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_jmp(state->pio_offset)); // setup pc
         dma_channel_abort(state->dma_out);

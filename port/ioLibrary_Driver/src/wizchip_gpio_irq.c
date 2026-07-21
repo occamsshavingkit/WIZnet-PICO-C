@@ -9,8 +9,6 @@
     Includes
     ----------------------------------------------------------------------------------------------------
 */
-#include <stdio.h>
-
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
 
@@ -23,7 +21,7 @@
     Variables
     ----------------------------------------------------------------------------------------------------
 */
-static void (*callback_ptr)(void);
+static void (*volatile callback_ptr)(void);
 
 /**
     ----------------------------------------------------------------------------------------------------
@@ -37,6 +35,7 @@ void wizchip_gpio_interrupt_initialize(uint8_t socket, void (*callback)(void)) {
 
     reg_val = (SIK_CONNECTED | SIK_DISCONNECTED | SIK_RECEIVED | SIK_TIMEOUT); // except SendOK
     ret_val = ctlsocket(socket, CS_SET_INTMASK, (void *)&reg_val);
+    (void)ret_val;
 
 #if (_WIZCHIP_ == W5100S)
     reg_val = (1 << socket);
@@ -45,6 +44,7 @@ void wizchip_gpio_interrupt_initialize(uint8_t socket, void (*callback)(void)) {
 #endif
 
     ret_val = ctlwizchip(CW_SET_INTRMASK, (void *)&reg_val);
+    (void)ret_val;
 
     callback_ptr = callback;
     gpio_set_irq_enabled_with_callback(PIN_INT, GPIO_IRQ_EDGE_FALL, true, &wizchip_gpio_interrupt_callback);
