@@ -9,8 +9,6 @@
     Includes
     ----------------------------------------------------------------------------------------------------
 */
-#include <stdio.h>
-
 #include "pico/stdlib.h"
 
 #include "timer.h"
@@ -22,7 +20,7 @@
 */
 /* Timer */
 static struct repeating_timer g_timer;
-void (*callback_ptr)(void);
+static void (*volatile callback_ptr)(void);
 
 /**
     ----------------------------------------------------------------------------------------------------
@@ -36,9 +34,11 @@ void wizchip_1ms_timer_initialize(void (*callback)(void)) {
 }
 
 bool wizchip_1ms_timer_callback(struct repeating_timer *t) {
+    (void)t;
     if (callback_ptr != NULL) {
         callback_ptr();
     }
+    return true;
 }
 
 /* Delay */

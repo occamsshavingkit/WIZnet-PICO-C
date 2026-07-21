@@ -1,2 +1,11 @@
 build/
 .vscode/
+*.o
+*.elf
+*.uf2
+*.bin
+*.hex
+*.map
+*.su
+.DS_Store
+Thumbs.db
