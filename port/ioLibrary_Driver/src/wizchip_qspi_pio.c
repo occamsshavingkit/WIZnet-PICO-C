@@ -594,14 +594,11 @@ static bool pio_spi_transfer(spi_pio_state_t *state, const uint8_t *tx, size_t t
         pio_sm_clear_fifos(state->pio, state->pio_sm); // clear fifos from previous run
         pio_sm_set_pindirs_with_mask(state->pio, state->pio_sm, 1u << state->spi_config->data_out_pin, 1u << state->spi_config->data_out_pin);
         pio_sm_restart(state->pio, state->pio_sm);
-        pio_sm_clkdiv_restart(state->pio, state->pio_sm);
         pio_sm_put(state->pio, state->pio_sm, tx_length * 8 - 1); // set x
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_out(pio_x, 32));
         pio_sm_put(state->pio, state->pio_sm, rx_length ? (rx_length - 1) : 0); // set y, guard against underflow
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_out(pio_y, 32));
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_jmp(state->pio_offset)); // setup pc
-        dma_channel_abort(state->dma_out);
-        dma_channel_abort(state->dma_in);
 
         dma_channel_config out_config = dma_channel_get_default_config(state->dma_out);
         channel_config_set_dreq(&out_config, pio_get_dreq(state->pio, state->pio_sm, true));
@@ -616,12 +613,9 @@ static bool pio_spi_transfer(spi_pio_state_t *state, const uint8_t *tx, size_t t
         dma_channel_configure(state->dma_in, &in_config, rx, &state->pio->rxf[state->pio_sm], rx_length, true);
 
         pio_sm_set_enabled(state->pio, state->pio_sm, true);
-        __compiler_memory_barrier();
 
         dma_channel_wait_for_finish_blocking(state->dma_out);
         dma_channel_wait_for_finish_blocking(state->dma_in);
-
-        __compiler_memory_barrier();
     } else if (tx != NULL) {
         assert(tx_length);
 
@@ -629,7 +623,6 @@ static bool pio_spi_transfer(spi_pio_state_t *state, const uint8_t *tx, size_t t
         pio_sm_set_wrap(state->pio, state->pio_sm, state->pio_offset + PIO_OFFSET_WRITE_BITS, state->pio_offset + PIO_OFFSET_WRITE_BITS_END - 1);
         pio_sm_clear_fifos(state->pio, state->pio_sm);
         pio_sm_restart(state->pio, state->pio_sm);
-        pio_sm_clkdiv_restart(state->pio, state->pio_sm);
         pio_sm_put(state->pio, state->pio_sm, tx_length * 8 - 1);
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_out(pio_x, 32));
         pio_sm_put(state->pio, state->pio_sm, tx_length - 1);
@@ -637,7 +630,6 @@ static bool pio_spi_transfer(spi_pio_state_t *state, const uint8_t *tx, size_t t
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_set(pio_pins, 0));
         pio_sm_set_consecutive_pindirs(state->pio, state->pio_sm, state->spi_config->data_out_pin, 1, true);
         pio_sm_exec(state->pio, state->pio_sm, pio_encode_jmp(state->pio_offset + PIO_OFFSET_WRITE_BITS));
-        dma_channel_abort(state->dma_out);
 
         dma_channel_config out_config = dma_channel_get_default_config(state->dma_out);
         channel_config_set_dreq(&out_config, pio_get_dreq(state->pio, state->pio_sm, true));
@@ -651,10 +643,10 @@ static bool pio_spi_transfer(spi_pio_state_t *state, const uint8_t *tx, size_t t
         {
             uint32_t _poll = 0;
             while (!(state->pio->fdebug & fDebugTxStall)) {
-                if (++_poll > 0xFFFFu) break;
-            }
+            if (++_poll > 0xFFFFu) break;
         }
-        __compiler_memory_barrier();
+    }
+    __compiler_memory_barrier();
         pio_sm_set_enabled(state->pio, state->pio_sm, false);
         pio_sm_set_consecutive_pindirs(state->pio, state->pio_sm, state->spi_config->data_in_pin, 1, false);
     } else if (rx != NULL) {
