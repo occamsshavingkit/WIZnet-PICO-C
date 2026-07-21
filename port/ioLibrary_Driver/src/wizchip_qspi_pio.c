@@ -391,7 +391,7 @@ static __noinline void ns_delay(uint32_t ns) {
 }
 
 static void wiznet_spi_pio_frame_start(void) {
-    assert(active_state);
+    if (!active_state) return;
 #if   (_WIZCHIP_ == W6300)
 #if (_WIZCHIP_QSPI_MODE_ == QSPI_SINGLE_MODE)
     gpio_set_function(active_state->spi_config->data_io0_pin, active_state->pio_func_sel);
@@ -418,8 +418,7 @@ static void wiznet_spi_pio_frame_start(void) {
 }
 
 static void wiznet_spi_pio_frame_end(void) {
-    assert(active_state);
-    // from this point a positive edge will cause an IRQ to be pending
+    if (!active_state) return;
     cs_set(active_state, true);
     // we need to wait a bit in case the irq line is incorrectly high
 #ifdef IRQ_SAMPLE_DELAY_NS
@@ -558,9 +557,11 @@ void wiznet_spi_pio_write_byte(uint8_t op_code, uint16_t AddrSel, uint8_t *tx, u
 
     const uint32_t fdebug_tx_stall = 1u << (PIO_FDEBUG_TXSTALL_LSB + active_state->pio_sm);
     active_state->pio->fdebug = fdebug_tx_stall;
-    // pio_sm_set_enabled(active_state->pio, active_state->pio_sm, true);
-    while (!(active_state->pio->fdebug & fdebug_tx_stall)) {
-        tight_loop_contents(); // todo timeout
+    {
+        uint32_t _poll = 0;
+        while (!(active_state->pio->fdebug & fdebug_tx_stall)) {
+            if (++_poll > 0xFFFFu) break;
+        }
     }
 #if 1
 
@@ -649,8 +650,11 @@ static bool pio_spi_transfer(spi_pio_state_t *state, const uint8_t *tx, size_t t
         const uint32_t fDebugTxStall = 1u << (PIO_FDEBUG_TXSTALL_LSB + state->pio_sm);
         state->pio->fdebug = fDebugTxStall;
         pio_sm_set_enabled(state->pio, state->pio_sm, true);
-        while (!(state->pio->fdebug & fDebugTxStall)) {
-            tight_loop_contents(); // todo timeout
+        {
+            uint32_t _poll = 0;
+            while (!(state->pio->fdebug & fDebugTxStall)) {
+                if (++_poll > 0xFFFFu) break;
+            }
         }
         __compiler_memory_barrier();
         pio_sm_set_enabled(state->pio, state->pio_sm, false);
