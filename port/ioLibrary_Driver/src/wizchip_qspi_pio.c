@@ -756,7 +756,7 @@ static wiznet_spi_funcs_t *get_wiznet_spi_pio_impl(void) {
         .read_buffer = wiznet_spi_pio_read_buffer,
         .write_buffer = wiznet_spi_pio_write_buffer,
 #endif
-        .reset = wizchip_spi_pio_reset,
+        .reset = wiznet_spi_pio_reset,
         .sleep = wiznet_spi_pio_sleep,
         .wake  = wiznet_spi_pio_wake,
     };
