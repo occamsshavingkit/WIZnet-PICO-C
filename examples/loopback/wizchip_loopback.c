@@ -193,15 +193,40 @@ int main() {
     printf("Compiled @ %s, %s\n", __DATE__, __TIME__);
     printf("==========================================================\n");
 
-    wizchip_spi_initialize();
-    wizchip_cris_initialize();
-    wizchip_reset();
-    wizchip_initialize();
+    if ((retval = wizchip_spi_initialize()) != 0) {
+        printf(" wizchip_spi_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
+    if ((retval = wizchip_cris_initialize()) != 0) {
+        printf(" wizchip_cris_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
+    if ((retval = wizchip_reset()) != 0) {
+        printf(" wizchip_reset error : %d\n", retval);
+
+        while (1)
+            ;
+    }
+    if ((retval = wizchip_initialize()) != 0) {
+        printf(" wizchip_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
     wizchip_check();
 
     // wizchip_1ms_timer_initialize(repeating_timer_callback);
 
-    network_initialize(g_net_info);
+    if ((retval = network_initialize(g_net_info)) != 0) {
+        printf(" network_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
 
     /* Get network information */
     print_network_information(g_net_info);

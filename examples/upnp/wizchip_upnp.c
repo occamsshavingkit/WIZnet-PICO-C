@@ -120,6 +120,8 @@ static void setUserLEDStatus(uint8_t val);
 */
 int main() {
     /* Initialize */
+    int retval = 0;
+
     stdio_init_all();
 
     while (!stdio_usb_connected());
@@ -128,16 +130,41 @@ int main() {
 
     UserLED_Init();
 
-    wizchip_spi_initialize();
-    wizchip_cris_initialize();
+    if ((retval = wizchip_spi_initialize()) != PICO_OK) {
+        printf(" wizchip_spi_initialize error : %d\n", retval);
 
-    wizchip_reset();
-    wizchip_initialize();
+        while (1)
+            ;
+    }
+    if ((retval = wizchip_cris_initialize()) != PICO_OK) {
+        printf(" wizchip_cris_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
+
+    if ((retval = wizchip_reset()) != PICO_OK) {
+        printf(" wizchip_reset error : %d\n", retval);
+
+        while (1)
+            ;
+    }
+    if ((retval = wizchip_initialize()) != PICO_OK) {
+        printf(" wizchip_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
     wizchip_check();
 
     wizchip_init(tx_size, rx_size);
 
-    network_initialize(g_net_info);
+    if ((retval = network_initialize(g_net_info)) != PICO_OK) {
+        printf(" network_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
 
     /* Get network information */
     print_network_information(g_net_info);

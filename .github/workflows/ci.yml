@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: occamsshavingkit/ioLibrary_Driver
+          path: ioLibrary_Driver
+          ref: 005-fix-audit-findings
+
+      - name: Configure
+        run: cmake -S tests -B build -DIOLIBRARY_ROOT="${{ github.workspace }}/ioLibrary_Driver"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        working-directory: build
+        run: ctest --output-on-failure

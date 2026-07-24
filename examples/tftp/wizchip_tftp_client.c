@@ -117,6 +117,7 @@ static time_t millis(void);
 */
 int main() {
     /* Initialize */
+    int retval;
     int tftp_state;
     uint8_t tftp_read_flag = 0;
     uint32_t tftp_server_ip = inet_addr((uint8_t *)TFTP_SERVER_IP);
@@ -124,16 +125,44 @@ int main() {
 
     stdio_init_all();
     sleep_ms(3000);
-    wizchip_spi_initialize();
-    wizchip_cris_initialize();
+    if ((retval = wizchip_spi_initialize()) != PICO_OK) {
+        printf(" wizchip_spi_initialize error : %d\n", retval);
+        while (1) {
+        }
+    }
+    if ((retval = wizchip_cris_initialize()) != PICO_OK) {
+        printf(" wizchip_cris_initialize error : %d\n", retval);
+        while (1) {
+        }
+    }
 
-    wizchip_reset();
-    wizchip_initialize();
-    wizchip_check();
+    if ((retval = wizchip_reset()) != PICO_OK) {
+        printf(" wizchip_reset error : %d\n", retval);
+        while (1) {
+        }
+    }
+    if ((retval = wizchip_initialize()) != PICO_OK) {
+        printf(" wizchip_initialize error : %d\n", retval);
+        while (1) {
+        }
+    }
+    if ((retval = wizchip_check()) != PICO_OK) {
+        printf(" wizchip_check error : %d\n", retval);
+        while (1) {
+        }
+    }
 
-    wizchip_1ms_timer_initialize(repeating_timer_callback);
+    if ((retval = wizchip_1ms_timer_initialize(repeating_timer_callback)) != PICO_OK) {
+        printf(" wizchip_1ms_timer_initialize error : %d\n", retval);
+        while (1) {
+        }
+    }
 
-    network_initialize(g_net_info);
+    if ((retval = network_initialize(g_net_info)) != PICO_OK) {
+        printf(" network_initialize error : %d\n", retval);
+        while (1) {
+        }
+    }
 
     /* Get network information */
     print_network_information(g_net_info);
