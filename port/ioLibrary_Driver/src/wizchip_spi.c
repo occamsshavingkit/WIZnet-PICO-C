@@ -21,7 +21,7 @@
 #include "wizchip_qspi_pio.h"
 #include "pico/stdlib.h"
 #include "pico/binary_info.h"
-#include "pico/critical_section.h"
+#include "pico/mutex.h"
 #include "hardware/dma.h"
 
 /**
@@ -35,7 +35,16 @@
     Variables
     ----------------------------------------------------------------------------------------------------
 */
-static critical_section_t g_wizchip_cri_sec;
+#define WIZCHIP_SOCKET_MUTEX_COUNT 8u
+#define WIZCHIP_VERSION_TIMEOUT_US 100000u
+
+#ifndef USE_PIO
+static mutex_t spi_bus_mutex;
+#endif
+static mutex_t g_wizchip_global_mutex;
+static mutex_t g_wizchip_socket_mutexes[WIZCHIP_SOCKET_MUTEX_COUNT];
+static bool g_wizchip_mutexes_initialized;
+static bool g_wizchip_spi_initialized;
 
 #ifdef USE_SPI_DMA
 static uint dma_tx;
@@ -186,60 +195,231 @@ static void wizchip_write_burst(uint8_t *pBuf, uint16_t len) {
 #endif
 
 static void wizchip_critical_section_lock(void) {
-    critical_section_enter_blocking(&g_wizchip_cri_sec);
+#ifdef USE_PIO
+    wiznet_spi_pio_bus_lock();
+#else
+    mutex_enter_blocking(&spi_bus_mutex);
+#endif
 }
 
 static void wizchip_critical_section_unlock(void) {
-    critical_section_exit(&g_wizchip_cri_sec);
+#ifdef USE_PIO
+    wiznet_spi_pio_bus_unlock();
+#else
+    mutex_exit(&spi_bus_mutex);
+#endif
 }
 
-void wizchip_spi_initialize(void) {
+static void wizchip_socket_lock(uint8_t sn) {
+    if (sn < WIZCHIP_SOCKET_MUTEX_COUNT) {
+        mutex_enter_blocking(&g_wizchip_socket_mutexes[sn]);
+    }
+}
+
+static void wizchip_socket_unlock(uint8_t sn) {
+    if (sn < WIZCHIP_SOCKET_MUTEX_COUNT) {
+        mutex_exit(&g_wizchip_socket_mutexes[sn]);
+    }
+}
+
+static void wizchip_global_lock(void) {
+    mutex_enter_blocking(&g_wizchip_global_mutex);
+}
+
+static void wizchip_global_unlock(void) {
+    mutex_exit(&g_wizchip_global_mutex);
+}
+
+static uint64_t wizchip_port_time_now(void) {
+    return time_us_64();
+}
+
+static void wizchip_port_wait(uint64_t us) {
+    sleep_us(us);
+}
+
+static uint8_t wizchip_transport_busy(void) {
 #ifdef USE_PIO
-    spi_handle = wiznet_spi_pio_open(&g_spi_config);
-    if (spi_handle == NULL) return;
+    wiznet_spi_lifecycle_state_t state =
+        wiznet_spi_pio_get_state(spi_handle);
+
+    return state == WIZNET_SPI_OPENING ||
+           state == WIZNET_SPI_TRANSFERRING ||
+           state == WIZNET_SPI_CLOSING;
+#else
+    return 0u;
+#endif
+}
+
+static int8_t wizchip_transport_get_error(void) {
+#ifdef USE_PIO
+    return (int8_t)wiznet_spi_pio_get_last_error(spi_handle);
+#else
+    return (int8_t)PICO_OK;
+#endif
+}
+
+static void wizchip_transport_clear_error(void) {
+#ifdef USE_PIO
+    wiznet_spi_pio_clear_last_error(spi_handle);
+#endif
+}
+
+#if (_WIZCHIP_ == W5500)
+static int wizchip_check_version(void) {
+    uint64_t started_us = time_us_64();
+
+    while (getVERSIONR() != 0x04u) {
+        int result = wizchip_transport_get_error();
+
+        if (result != PICO_OK) {
+            return result;
+        }
+        if ((time_us_64() - started_us) >= WIZCHIP_VERSION_TIMEOUT_US) {
+            return PICO_ERROR_TIMEOUT;
+        }
+        tight_loop_contents();
+    }
+
+    return PICO_OK;
+}
+#endif
+
+static void wizchip_mutexes_initialize(void) {
+    if (g_wizchip_mutexes_initialized) {
+        return;
+    }
+
+#ifdef USE_PIO
+    wiznet_spi_pio_sync_initialize();
+#else
+    mutex_init(&spi_bus_mutex);
+#endif
+    mutex_init(&g_wizchip_global_mutex);
+    for (uint8_t sn = 0; sn < WIZCHIP_SOCKET_MUTEX_COUNT; ++sn) {
+        mutex_init(&g_wizchip_socket_mutexes[sn]);
+    }
+    g_wizchip_mutexes_initialized = true;
+}
+
+int wizchip_spi_initialize(void) {
+    int result;
+
+    wizchip_mutexes_initialize();
+#ifdef USE_PIO
+    if (spi_handle == NULL) {
+        result = wiznet_spi_pio_open_ex(&g_spi_config, &spi_handle);
+        if (result != PICO_OK) {
+            return result;
+        }
+    }
+    if (wiznet_spi_pio_get_state(spi_handle) != WIZNET_SPI_READY) {
+        return PICO_ERROR_INVALID_STATE;
+    }
     (*spi_handle)->set_active(spi_handle);
 #else
-    // this example will use SPI0 at 5MHz
-    spi_init(SPI_PORT, SPI_CLK * 1000 * 1000);
+    if (!g_wizchip_spi_initialized) {
+        // this example will use SPI0 at 5MHz
+        spi_init(SPI_PORT, SPI_CLK * 1000 * 1000);
 
-    gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
-    gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
-    gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
+        gpio_set_function(PIN_SCK, GPIO_FUNC_SPI);
+        gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
+        gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
 
-    // make the SPI pins available to picotool
-    bi_decl(bi_3pins_with_func(PIN_MISO, PIN_MOSI, PIN_SCK, GPIO_FUNC_SPI));
+        // make the SPI pins available to picotool
+        bi_decl(bi_3pins_with_func(PIN_MISO, PIN_MOSI, PIN_SCK, GPIO_FUNC_SPI));
 
-    // chip select is active-low, so we'll initialise it to a driven-high state
-    gpio_init(PIN_CS);
-    gpio_set_dir(PIN_CS, GPIO_OUT);
-    gpio_put(PIN_CS, 1);
+        // chip select is active-low, so we'll initialise it to a driven-high state
+        gpio_init(PIN_CS);
+        gpio_set_dir(PIN_CS, GPIO_OUT);
+        gpio_put(PIN_CS, 1);
 
-    // make the SPI pins available to picotool
-    bi_decl(bi_1pin_with_name(PIN_CS, "W5x00 CHIP SELECT"));
+        // make the SPI pins available to picotool
+        bi_decl(bi_1pin_with_name(PIN_CS, "W5x00 CHIP SELECT"));
 
 #ifdef USE_SPI_DMA
-    dma_tx = dma_claim_unused_channel(true);
-    dma_rx = dma_claim_unused_channel(true);
+        dma_tx = dma_claim_unused_channel(true);
+        dma_rx = dma_claim_unused_channel(true);
 
-    dma_channel_config_tx = dma_channel_get_default_config(dma_tx);
-    channel_config_set_transfer_data_size(&dma_channel_config_tx, DMA_SIZE_8);
-    channel_config_set_dreq(&dma_channel_config_tx, DREQ_SPI0_TX);
+        dma_channel_config_tx = dma_channel_get_default_config(dma_tx);
+        channel_config_set_transfer_data_size(&dma_channel_config_tx, DMA_SIZE_8);
+        channel_config_set_dreq(&dma_channel_config_tx, DREQ_SPI0_TX);
 
-    // We set the inbound DMA to transfer from the SPI receive FIFO to a memory buffer paced by the SPI RX FIFO DREQ
-    // We coinfigure the read address to remain unchanged for each element, but the write
-    // address to increment (so data is written throughout the buffer)
-    dma_channel_config_rx = dma_channel_get_default_config(dma_rx);
-    channel_config_set_transfer_data_size(&dma_channel_config_rx, DMA_SIZE_8);
-    channel_config_set_dreq(&dma_channel_config_rx, DREQ_SPI0_RX);
-    channel_config_set_read_increment(&dma_channel_config_rx, false);
-    channel_config_set_write_increment(&dma_channel_config_rx, true);
+        // We set the inbound DMA to transfer from the SPI receive FIFO to a memory buffer paced by the SPI RX FIFO DREQ
+        // We coinfigure the read address to remain unchanged for each element, but the write
+        // address to increment (so data is written throughout the buffer)
+        dma_channel_config_rx = dma_channel_get_default_config(dma_rx);
+        channel_config_set_transfer_data_size(&dma_channel_config_rx, DMA_SIZE_8);
+        channel_config_set_dreq(&dma_channel_config_rx, DREQ_SPI0_RX);
+        channel_config_set_read_increment(&dma_channel_config_rx, false);
+        channel_config_set_write_increment(&dma_channel_config_rx, true);
+#endif
+    }
+#endif
+
+    reg_wizchip_time_cbfunc(wizchip_port_time_now, wizchip_port_wait);
+    result = wizchip_cris_initialize();
+    if (result != PICO_OK) {
+        return result;
+    }
+
+#ifdef USE_PIO
+#if (_WIZCHIP_ == W6300)
+    reg_wizchip_qspi_cbfunc((*spi_handle)->read_byte,
+                            (*spi_handle)->write_byte);
+#else
+    reg_wizchip_spi_cbfunc((*spi_handle)->read_byte,
+                           (*spi_handle)->write_byte);
+    reg_wizchip_spiburst_cbfunc((*spi_handle)->read_buffer,
+                                (*spi_handle)->write_buffer);
+#endif
+#else
+#if (_WIZCHIP_ == W6100)
+    reg_wizchip_spi_cbfunc(wizchip_read, wizchip_write,
+                           wizchip_read_buf, wizchip_write_buf);
+#else
+    reg_wizchip_spi_cbfunc(wizchip_read, wizchip_write);
+#endif
+#ifdef USE_SPI_DMA
+    reg_wizchip_spiburst_cbfunc(wizchip_read_burst, wizchip_write_burst);
 #endif
 #endif
+
+    reg_wizchip_spistatus_cbfunc(wizchip_transport_busy,
+                                 wizchip_transport_get_error,
+                                 wizchip_transport_clear_error);
+#ifdef USE_PIO
+    (*spi_handle)->frame_end();
+    reg_wizchip_cs_cbfunc((*spi_handle)->frame_start,
+                          (*spi_handle)->frame_end);
+#else
+    wizchip_deselect();
+    reg_wizchip_cs_cbfunc(wizchip_select, wizchip_deselect);
+#endif
+
+    g_wizchip_spi_initialized = true;
+
+#if (_WIZCHIP_ == W5500)
+    result = wizchip_check_version();
+    if (result != PICO_OK) {
+        return result;
+    }
+#endif
+
+    return PICO_OK;
 }
 
-void wizchip_cris_initialize(void) {
-    critical_section_init(&g_wizchip_cri_sec);
+int wizchip_cris_initialize(void) {
+    wizchip_mutexes_initialize();
     reg_wizchip_cris_cbfunc(wizchip_critical_section_lock, wizchip_critical_section_unlock);
+    if (reg_wizchip_lock_cbfunc(wizchip_socket_lock,
+                                wizchip_socket_unlock,
+                                wizchip_global_lock,
+                                wizchip_global_unlock) != 0) {
+        return PICO_ERROR_INVALID_ARG;
+    }
+
+    return PICO_OK;
 }
 
 void wizchip_initialize(void) {
@@ -312,11 +492,9 @@ void wizchip_check(void) {
     }
 #elif (_WIZCHIP_ == W5500)
     /* Read version register */
-    if (getVERSIONR() != 0x04) {
+    if (wizchip_check_version() != PICO_OK) {
         printf(" ACCESS ERR : VERSION != 0x04, read value = 0x%02x\n", getVERSIONR());
-
-        while (1)
-            ;
+        return;
     }
 #elif (_WIZCHIP_ == W6100)
     /* Read version register */

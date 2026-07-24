@@ -162,9 +162,9 @@ static void wizchip_critical_section_unlock(void);
     Puts the SPI into a known state, and enable it.
     Set DMA channel completion channel.
 
-    \param none
+    \return PICO_OK on success, or a negative Pico error code.
 */
-void wizchip_spi_initialize(void);
+int wizchip_spi_initialize(void);
 
 /*! \brief Initialize a critical section structure
     \ingroup wizchip_spi
@@ -172,9 +172,9 @@ void wizchip_spi_initialize(void);
     The critical section is initialized ready for use.
     Registers callback function for critical section for WIZchip.
 
-    \param none
+    \return PICO_OK on success, or a negative Pico error code.
 */
-void wizchip_cris_initialize(void);
+int wizchip_cris_initialize(void);
 
 /*! \brief wizchip reset
     \ingroup wizchip_spi

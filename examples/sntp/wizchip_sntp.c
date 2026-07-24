@@ -114,22 +114,47 @@ static time_t millis(void);
 */
 int main() {
     /* Initialize */
-    uint8_t retval = 0;
+    int retval = 0;
     uint32_t start_ms = 0;
     datetime time;
 
     stdio_init_all();
     sleep_ms(3000);
-    wizchip_spi_initialize();
-    wizchip_cris_initialize();
+    if ((retval = wizchip_spi_initialize()) != PICO_OK) {
+        printf(" wizchip_spi_initialize error : %d\n", retval);
 
-    wizchip_reset();
-    wizchip_initialize();
+        while (1)
+            ;
+    }
+    if ((retval = wizchip_cris_initialize()) != PICO_OK) {
+        printf(" wizchip_cris_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
+
+    if ((retval = wizchip_reset()) != PICO_OK) {
+        printf(" wizchip_reset error : %d\n", retval);
+
+        while (1)
+            ;
+    }
+    if ((retval = wizchip_initialize()) != PICO_OK) {
+        printf(" wizchip_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
     wizchip_check();
 
     wizchip_1ms_timer_initialize(repeating_timer_callback);
 
-    network_initialize(g_net_info);
+    if ((retval = network_initialize(g_net_info)) != PICO_OK) {
+        printf(" network_initialize error : %d\n", retval);
+
+        while (1)
+            ;
+    }
 
     SNTP_init(SOCKET_SNTP, g_sntp_server_ip, TIMEZONE, g_sntp_buf);
 

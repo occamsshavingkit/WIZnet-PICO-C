@@ -28,6 +28,7 @@ target_include_directories(IOLIBRARY_FILES PUBLIC
 
 target_link_libraries(IOLIBRARY_FILES PUBLIC
         pico_stdlib
+        pico_sync
         hardware_pio
         hardware_spi
         hardware_dma
