@@ -196,7 +196,7 @@ static void wizchip_write_burst(uint8_t *pBuf, uint16_t len) {
 
 static void wizchip_critical_section_lock(void) {
 #ifdef USE_PIO
-    wiznet_spi_pio_bus_lock();
+    wiznet_spi_pio_cris_enter();
 #else
     mutex_enter_blocking(&spi_bus_mutex);
 #endif
@@ -204,7 +204,7 @@ static void wizchip_critical_section_lock(void) {
 
 static void wizchip_critical_section_unlock(void) {
 #ifdef USE_PIO
-    wiznet_spi_pio_bus_unlock();
+    wiznet_spi_pio_cris_exit();
 #else
     mutex_exit(&spi_bus_mutex);
 #endif
