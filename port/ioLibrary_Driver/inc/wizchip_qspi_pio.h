@@ -103,6 +103,8 @@ int wiznet_spi_pio_recover(wiznet_spi_handle_t handle);
 void wiznet_spi_pio_sync_initialize(void);
 void wiznet_spi_pio_bus_lock(void);
 void wiznet_spi_pio_bus_unlock(void);
+void wiznet_spi_pio_cris_enter(void);
+void wiznet_spi_pio_cris_exit(void);
 int wiznet_spi_pio_get_last_error(wiznet_spi_handle_t handle);
 void wiznet_spi_pio_clear_last_error(wiznet_spi_handle_t handle);
 wiznet_spi_lifecycle_state_t wiznet_spi_pio_get_state(
