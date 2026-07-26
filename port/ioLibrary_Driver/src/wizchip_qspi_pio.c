@@ -96,6 +96,7 @@ static spi_pio_state_t spi_pio_state[PICO_WIZNET_SPI_PIO_INSTANCE_COUNT];
 static spi_pio_state_t *active_state;
 static mutex_t spi_bus_mutex;
 static critical_section_t state_critical_section;
+static critical_section_t spi_cris_cs;
 static bool sync_initialized;
 
 static void wiznet_spi_pio_close(wiznet_spi_handle_t handle);
@@ -109,6 +110,7 @@ void wiznet_spi_pio_sync_initialize(void) {
 
     mutex_init(&spi_bus_mutex);
     critical_section_init(&state_critical_section);
+    critical_section_init(&spi_cris_cs);
     sync_initialized = true;
 }
 
@@ -118,6 +120,14 @@ void wiznet_spi_pio_bus_lock(void) {
 
 void wiznet_spi_pio_bus_unlock(void) {
     mutex_exit(&spi_bus_mutex);
+}
+
+void wiznet_spi_pio_cris_enter(void) {
+    critical_section_enter_blocking(&spi_cris_cs);
+}
+
+void wiznet_spi_pio_cris_exit(void) {
+    critical_section_exit(&spi_cris_cs);
 }
 
 static void set_lifecycle(spi_pio_state_t *state,
@@ -130,6 +140,17 @@ static void set_lifecycle(spi_pio_state_t *state,
 static bool dma_channel_abort_bounded(spi_pio_state_t *state, int8_t channel,
                                       bool *quarantined) {
     const uint32_t channel_mask = 1u << (uint)channel;
+
+    if (!dma_channel_is_busy((uint)channel)) {
+        /* Idle channel: skip the bounded abort, but still acknowledge a
+           stale completion flag exactly as the full abort path would. */
+        if ((dma_hw->intr & channel_mask) != 0u) {
+            dma_channel_acknowledge_irq0((uint)channel);
+        }
+        *quarantined = false;
+        return true;
+    }
+
     const bool irq0_was_enabled = (dma_hw->inte0 & channel_mask) != 0u;
     const bool irq0_was_asserted = (dma_hw->ints0 & channel_mask) != 0u;
     const uint64_t abort_started_us = time_us_64();
@@ -496,6 +517,8 @@ static int wiznet_spi_pio_open_normalized(
     uint pio_index = state->pio == pio1 ? 1u : 0u;
     state->pio_func_sel = GPIO_FUNC_PIO0 + pio_index;
 
+
+#ifdef WIZCHIP_PIO_TRACE
     uint64_t f_sys = clock_get_hz(clk_sys); // Hz
 #if (_WIZCHIP_ == W6300)
     const char *wizchip_pio_clock_str = "PIO QSPI CLOCK SPEED";
@@ -508,6 +531,7 @@ static int wiznet_spi_pio_open_normalized(
            (double)f_sys / (2.0 * (state->spi_config->clock_div_major +
                                    state->spi_config->clock_div_minor / 256.0)) / 1e6,
            f_sys / 1e6);
+#endif
 
     pio_sm_config sm_config = PIO_PROGRAM_GET_DEFAULT_CONFIG_FUNC(state->pio_offset);
 
@@ -523,7 +547,9 @@ static int wiznet_spi_pio_open_normalized(
 
 #if   (_WIZCHIP_ == W6300)
 #if (_WIZCHIP_QSPI_MODE_ == QSPI_SINGLE_MODE)
+#ifdef WIZCHIP_PIO_TRACE
     printf("\r\n[QSPI SINGLE MODE]\r\n");
+#endif
     sm_config_set_out_pins(&sm_config, state->spi_config->data_io0_pin, 1);
     sm_config_set_in_pins(&sm_config, state->spi_config->data_io1_pin);
     sm_config_set_set_pins(&sm_config, state->spi_config->data_io0_pin, 2);
@@ -546,7 +572,9 @@ static int wiznet_spi_pio_open_normalized(
     gpio_set_input_hysteresis_enabled(state->spi_config->data_io0_pin, true);
     gpio_set_input_hysteresis_enabled(state->spi_config->data_io1_pin, true);
 #elif (_WIZCHIP_QSPI_MODE_ == QSPI_DUAL_MODE)
+#ifdef WIZCHIP_PIO_TRACE
     printf("[QSPI DUAL MODE]\r\n\r\n");
+#endif
     sm_config_set_out_pins(&sm_config, state->spi_config->data_io0_pin, 2);
     sm_config_set_in_pins(&sm_config, state->spi_config->data_io0_pin);
     sm_config_set_set_pins(&sm_config, state->spi_config->data_io0_pin, 2);
@@ -570,7 +598,9 @@ static int wiznet_spi_pio_open_normalized(
     gpio_set_input_hysteresis_enabled(state->spi_config->data_io0_pin, true);
     gpio_set_input_hysteresis_enabled(state->spi_config->data_io1_pin, true);
 #elif (_WIZCHIP_QSPI_MODE_ == QSPI_QUAD_MODE)
+#ifdef WIZCHIP_PIO_TRACE
     printf("\r\n[QSPI QUAD MODE]\r\n");
+#endif
     sm_config_set_out_pins(&sm_config, state->spi_config->data_io0_pin, 4);
     sm_config_set_in_pins(&sm_config, state->spi_config->data_io0_pin);
     sm_config_set_set_pins(&sm_config, state->spi_config->data_io0_pin, 4);
@@ -1078,11 +1108,15 @@ static void wiznet_spi_pio_write_buffer(uint8_t* pBuf, uint16_t len) {
 
 
 static void wiznet_spi_pio_set_active(wiznet_spi_handle_t handle) {
+    critical_section_enter_blocking(&state_critical_section);
     active_state = (spi_pio_state_t *)handle;
+    critical_section_exit(&state_critical_section);
 }
 
 static void wiznet_spi_pio_set_inactive(void) {
+    critical_section_enter_blocking(&state_critical_section);
     active_state = NULL;
+    critical_section_exit(&state_critical_section);
 }
 
 int wiznet_spi_pio_get_last_error(wiznet_spi_handle_t handle) {
@@ -1226,7 +1260,7 @@ int wiznet_spi_pio_recover(wiznet_spi_handle_t handle) {
 }
 
 static wiznet_spi_funcs_t *get_wiznet_spi_pio_impl(void) {
-    static wiznet_spi_funcs_t funcs = {
+    static const wiznet_spi_funcs_t funcs = {
         .close = wiznet_spi_pio_close,
         .set_active = wiznet_spi_pio_set_active,
         .set_inactive = wiznet_spi_pio_set_inactive,
@@ -1242,5 +1276,5 @@ static wiznet_spi_funcs_t *get_wiznet_spi_pio_impl(void) {
         .sleep = wiznet_spi_pio_sleep,
         .wake  = wiznet_spi_pio_wake,
     };
-    return &funcs;
+    return (wiznet_spi_funcs_t *)&funcs;
 }
